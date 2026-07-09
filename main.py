@@ -1,13 +1,18 @@
 import pygame
 import random
 
+from slot_machine import SlotMachine
+from reel import Reel
+from symbol import Symbol
+from player import Player
+
 from pathlib import Path
 
 IMAGE_DIR = Path("assets/images")
 
 symbols = {}
 
-reel_strip = [
+_strip = [
     "s06",
     "s01",
     "s06",
@@ -32,23 +37,31 @@ reel_strip = [
     "s03",
 ]
 
-PAYOUTS = {
-    "w01": {3: 1000},
-    "s01": {3: 80},
-    "s02": {3: 40},
-    "s03": {3: 25},
-    "s04": {3: 10},
-    "s05": {3: 10, 2: 5, 1: 2},
+_multiplier = {
+    "w01": 1000.00,
+    "s01": 80.00,
+    "s02": 40.00,
+    "s03": 25.00,
+    "s04": 10.00,
+    "s05": 10.00,
+    "s06": 0.00,
 }
 
-reel_positions = [2, 5, 0]
-target_positions = reel_positions.copy()
+_symbols = []
 
-reel_spinning = [False, False, False]
-spin_speed = [1, 1, 1]
+for i in _strip:
+    _symbols.append(Symbol(i, _multiplier[i]))
 
-stop_time = [0, 0, 0]
+_reels = [Reel(_symbols) for _ in range(3)]
 
+_player = Player(200.00)
+
+balance = 200.00
+
+_slot_machine = SlotMachine(_reels, _player, [2, 5, 0])
+
+# App config
+title = "Double Diamond"
 width = 960
 height = 540
 padding = 6
@@ -56,6 +69,7 @@ line_size = 3
 
 # Color
 BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
 
 # pygame setup
 pygame.init()
@@ -70,8 +84,8 @@ for image in IMAGE_DIR.glob("*.png"):
 
 # Static background
 background = pygame.Surface(screen.get_size())
-background.fill((255, 255, 255))
-title = font.render("Double Diamond", True, BLACK)
+background.fill(WHITE)
+title = font.render(title, True, BLACK)
 title_rect = title.get_rect(center=(width // 2, 50 + padding * 2))
 
 # Draw static outlines
@@ -161,9 +175,6 @@ for w in widths:
 bet_values = [1, 2, 3, 5, 10, 20, 30, 50, 100, 200, 250]
 bet_index = 0
 
-balance = 200
-win = 0
-
 label_names = ["LINE", "LINE BET", "TOTAL BET", "WIN", "BALANCE"]
 
 labels = []
@@ -188,92 +199,16 @@ def total_bet():
     return lines * bet_values[bet_index]
 
 
-def evaluate(reel_positions, reel_strip, bet):
-    line = [
-        reel_strip[reel_positions[0]],
-        reel_strip[reel_positions[1]],
-        reel_strip[reel_positions[2]],
-    ]
+target_positions = []
 
-    wilds = line.count("w01")
+reel_spinning = [False, False, False]
+spin_speed = [1, 1, 1]
 
-    # Jackpot
-    if wilds == 3:
-        return PAYOUTS["w01"][3] * bet
-
-    best = 0
-
-    #
-    # CHERRIES
-    # Wilds DO NOT substitute for cherries.
-    #
-    cherries = line.count("s05")
-
-    if cherries:
-        payout = PAYOUTS["s05"][cherries]
-
-        if wilds == 1:
-            payout *= 2
-        elif wilds == 2:
-            payout *= 4
-
-        best = max(best, payout)
-
-    #
-    # Regular symbols (s01-s04)
-    # Wilds substitute to maximize the payout.
-    #
-    for symbol in ("s01", "s02", "s03", "s04"):
-
-        # Ignore blanks and wilds.
-        regular = [s for s in line if s not in ("s06", "w01")]
-
-        # Cherries prevent substitution into other symbols.
-        if "s05" in regular:
-            continue
-
-        # Any remaining symbol must already match.
-        if any(s != symbol for s in regular):
-            continue
-
-        count = line.count(symbol) + wilds
-
-        payout = PAYOUTS[symbol].get(count, 0)
-
-        if payout == 0:
-            continue
-
-        if wilds == 1:
-            payout *= 2
-        elif wilds == 2:
-            payout *= 4
-
-        best = max(best, payout)
-
-    #
-    # Mixed bars
-    #
-    bars = [s for s in line if s in ("s02", "s03", "s04")]
-
-    if bars:
-        if len(bars) + wilds == 3:
-
-            # Not three of a kind.
-            if len(set(bars)) > 1:
-
-                payout = 5
-
-                if wilds == 1:
-                    payout *= 2
-                elif wilds == 2:
-                    payout *= 4
-
-                best = max(best, payout)
-
-    return best * bet
-
+stop_time = [0, 0, 0]
 
 spin_finished = False
+
+win = 0
 
 while running:
     # poll for events
@@ -295,13 +230,11 @@ while running:
 
                     bet = total_bet()
 
-                    if balance >= bet:
-                        balance -= bet
+                    if _slot_machine.spin(bet):
                         win = 0
+                        balance -= bet
 
-                        target_positions = [
-                            random.randrange(len(reel_strip)) for _ in range(3)
-                        ]
+                        target_positions = _slot_machine.positions.copy()
 
                         reel_spinning = [True, True, True]
                         spin_finished = False
@@ -316,42 +249,38 @@ while running:
 
     # Reel 1
     if reel_spinning[0]:
-        reel_positions[0] = (reel_positions[0] + 1) % len(reel_strip)
+        _slot_machine.positions[0] = (_slot_machine.positions[0] + 1) % len(_strip)
 
-        if now >= stop_time[0] and reel_positions[0] == target_positions[0]:
+        if now >= stop_time[0] and _slot_machine.positions[0] == target_positions[0]:
             reel_spinning[0] = False
 
     # Reel 2
     if reel_spinning[1]:
-        reel_positions[1] = (reel_positions[1] + 1) % len(reel_strip)
+        _slot_machine.positions[1] = (_slot_machine.positions[1] + 1) % len(_strip)
 
-        if now >= stop_time[1] and reel_positions[1] == target_positions[1]:
+        if now >= stop_time[1] and _slot_machine.positions[1] == target_positions[1]:
             reel_spinning[1] = False
 
     # Reel 3
     if reel_spinning[2]:
-        reel_positions[2] = (reel_positions[2] + 1) % len(reel_strip)
+        _slot_machine.positions[2] = (_slot_machine.positions[2] + 1) % len(_strip)
 
-        if now >= stop_time[2] and reel_positions[2] == target_positions[2]:
+        if now >= stop_time[2] and _slot_machine.positions[2] == target_positions[2]:
             reel_spinning[2] = False
 
     if not any(reel_spinning) and not spin_finished:
-        win = evaluate(
-            reel_positions,
-            reel_strip,
-            bet_values[bet_index],
-        )
+        win = _slot_machine.win
+        balance = _slot_machine.player.balance
 
-        balance += win
         spin_finished = True
 
     # Draw the cached background
     screen.blit(background, (0, 0))
     screen.blit(title, title_rect)
 
-    for reel, position in zip(reels, reel_positions):
+    for reel, position in zip(reels, _slot_machine.positions):
         for offset in range(-2, 3):
-            symbol = reel_strip[(position + offset) % len(reel_strip)]
+            symbol = _strip[(position + offset) % len(_strip)]
 
             if symbol != "s06":
                 image = symbols[symbol]
@@ -381,12 +310,14 @@ while running:
 
                 screen.blit(scaled, image_rect)
 
+    win_string = f"{win:.2f}" if win > 0 else ""
+
     value_strings = [
         "1",
-        str(bet_values[bet_index]),
-        str(bet_values[bet_index]),
-        str(win),
-        str(balance),
+        f"{bet_values[bet_index]:.2f}",
+        f"{total_bet():.2f}",
+        win_string,
+        f"{balance:.2f}",
     ]
 
     for i, box in enumerate(boxes):
@@ -397,10 +328,6 @@ while running:
         value_rect = value.get_rect(center=(box.centerx, box.centery - 15))
 
         screen.blit(value, value_rect)
-
-    # RENDER YOUR GAME HERE
-
-    # flip() the display to put your work on screen
 
     pygame.display.flip()
 

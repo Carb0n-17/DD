@@ -59,10 +59,11 @@ def build_slot_machine(wild_weight: float = 1.0, cherry_weight: float = 1.0):
         for name in REEL_STRIP:
             weight = wild_weight if name == "w01" else cherry_weight if name == "s05" else 1.0
             weighted_symbols.extend([name] * int(round(weight * 10)))
+        random.shuffle(weighted_symbols)
         symbols = [Symbol(name, MULTIPLIERS[name]) for name in weighted_symbols]
 
     reels = [Reel(symbols) for _ in range(3)]
-    player = Player(100000.0)
+    player = Player(100.0)
     return SlotMachine(reels, player, [0, 0, 0])
 
 
@@ -72,7 +73,8 @@ def run_monte_carlo(runs: int, bet: float, wild_weight: float = 1.0, cherry_weig
     cumulative = 0.0
 
     for _ in range(runs):
-        machine.spin(bet)
+        if not machine.spin(bet):
+            break
         cumulative += machine.win - bet
         balances.append(cumulative)
 
@@ -105,11 +107,11 @@ def plot_results(results, output_path: Path):
 
 
 def main():
-    runs = 5000
+    runs = 1000
     bet = 1.0
 
     baseline = run_monte_carlo(runs, bet)
-    house_edge = run_monte_carlo(runs, bet, wild_weight=0.8, cherry_weight=0.9)
+    house_edge = run_monte_carlo(runs, bet, wild_weight=0.6, cherry_weight=0.6)
 
     results = {
         "baseline": baseline,
